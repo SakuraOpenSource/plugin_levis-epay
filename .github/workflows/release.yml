@@ -42,7 +42,7 @@ jobs:
       - name: Prepare local dependencies
         run: |
           git clone --depth 1 https://github.com/SakuraOpenSource/levis.git ../levis
-          git clone --depth 1 https://github.com/SakuraOpenSource/epay-sdk-go.git ../epay-sdk-go
+          git clone --depth 1 https://github.com/LiusCraft/epay-sdk-go.git ../epay-sdk-go
 
       - name: Test
         run: go test ./...
