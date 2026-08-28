@@ -22,6 +22,19 @@
 
 ## 编译与安装
 
+### GitHub Actions 发布
+
+打开仓库的 `Actions → Release EPay Plugin → Run workflow`，在 `tag` 中输入版本号，例如 `v0.1.0`。Workflow 会检出同级的 Levis 与 `epay-sdk-go` 本地依赖，运行测试，构建插件 ZIP、生成 SHA-256 校验文件，并根据 `feat`、`fix`、`chore`、`docs` 等 commit message 自动生成 Release Notes。
+
+发布产物：
+
+```text
+levis-epay-v0.1.0.zip
+levis-epay-v0.1.0.sha256
+```
+
+该插件仓库不要求提交任何商户配置、密钥或本地依赖目录。
+
 在仓库根目录执行：
 
 ```bash

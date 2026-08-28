@@ -1,0 +1,86 @@
+name: Release EPay Plugin
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag，例如 v0.1.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate tag
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          case "$RELEASE_TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "tag 必须使用 vMAJOR.MINOR.PATCH 格式，例如 v0.1.0" >&2; exit 1 ;;
+          esac
+
+      - name: Checkout plugin
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.4"
+          cache: true
+
+      # go.mod 使用本地 replace，CI 中准备同级依赖目录，不改源码中的本地开发配置。
+      - name: Prepare local dependencies
+        run: |
+          git clone --depth 1 https://github.com/SakuraOpenSource/levis.git ../levis
+          git clone --depth 1 https://github.com/SakuraOpenSource/epay-sdk-go.git ../epay-sdk-go
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build plugin
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          mkdir -p dist/epay/frontend
+          CGO_ENABLED=0 go build \
+            -trimpath \
+            -ldflags "-s -w" \
+            -o dist/epay/plugin \
+            .
+          cp -R frontend/. dist/epay/frontend/
+          chmod 0755 dist/epay/plugin
+          file dist/epay/plugin
+
+      - name: Package plugin
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+        run: |
+          cd dist
+          zip -r "../levis-epay-${RELEASE_TAG}.zip" epay
+          cd ..
+          sha256sum "levis-epay-${RELEASE_TAG}.zip" > "levis-epay-${RELEASE_TAG}.sha256"
+          ls -lh "levis-epay-${RELEASE_TAG}.zip" "levis-epay-${RELEASE_TAG}.sha256"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: ${{ inputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            levis-epay-${{ inputs.tag }}.zip
+            levis-epay-${{ inputs.tag }}.sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
