@@ -399,6 +399,91 @@ func (p *epayPlugin) QueryPayment(ctx context.Context, req *pb.QueryPaymentReque
 	return &pb.QueryPaymentReply{State: state, PaidAmountCents: paidCents}, nil
 }
 
+// refundCentsToYuan 把整数分格式化为渠道要求的两位小数字符串。
+func refundCentsToYuan(cents int64) string {
+	return fmt.Sprintf("%.2f", float64(cents)/100)
+}
+
+// RefundPayment 向易支付网关发起订单退款（V1 退款接口）。
+//
+// 网关地址、PID、KEY 全部来自支付方式配置；商户需先在易支付商户后台
+// 开启「订单退款 API」开关，否则渠道会返回业务错误（透传给调用方）。
+// 注意该接口的应答约定与其它接口相反：code=0 表示成功。
+func (p *epayPlugin) RefundPayment(ctx context.Context, req *pb.RefundPaymentRequest) (*pb.RefundPaymentReply, error) {
+	pidStr, key, gatewayURL, _ := epayConfig(req.GetConfig(), p.pid, p.key, p.gatewayURL, p.paymentType)
+	if pidStr == "" || key == "" {
+		return nil, status.Error(codes.FailedPrecondition, "支付方式未配置 PID/KEY")
+	}
+	if gatewayURL == "" {
+		return nil, status.Error(codes.FailedPrecondition, "未配置易支付网关地址")
+	}
+	if req.GetAmountCents() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "退款金额必须大于零")
+	}
+	tradeNo := strings.TrimSpace(req.GetGatewayRef())
+	outTradeNo := strings.TrimSpace(req.GetExternalId())
+	if tradeNo == "" && outTradeNo == "" {
+		return nil, status.Error(codes.InvalidArgument, "缺少原支付单号")
+	}
+	form := url.Values{}
+	form.Set("pid", pidStr)
+	form.Set("key", key)
+	form.Set("money", refundCentsToYuan(req.GetAmountCents()))
+	// 渠道约定两个单号都传时以 trade_no 为准，因此只在有值时携带。
+	if tradeNo != "" {
+		form.Set("trade_no", tradeNo)
+	}
+	if outTradeNo != "" {
+		form.Set("out_trade_no", outTradeNo)
+	}
+
+	endpoint := strings.TrimRight(gatewayURL, "/") + "/api.php?act=refund"
+	p.debugf("RefundPayment: pid=%s gateway=%s out_trade_no=%s trade_no=%s money=%s",
+		pidStr, gatewayURL, outTradeNo, tradeNo, form.Get("money"))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "构造退款请求失败: %v", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := p.refundHTTP().Do(httpReq)
+	if err != nil {
+		p.debugf("RefundPayment 请求失败: %v", err)
+		return nil, status.Errorf(codes.Internal, "退款请求失败: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	p.debugf("RefundPayment 响应: status=%d body=%s", resp.StatusCode, string(body))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "读取退款应答失败: %v", err)
+	}
+	var result struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, status.Errorf(codes.Internal, "退款应答格式错误: %v", err)
+	}
+	// 退款接口以 code=0 表示成功（与查询/下单接口的 code=1 不同）。
+	if result.Code != 0 {
+		msg := result.Msg
+		if msg == "" {
+			msg = "渠道未返回失败原因"
+		}
+		return &pb.RefundPaymentReply{Ok: false, Error: msg}, nil
+	}
+	return &pb.RefundPaymentReply{Ok: true}, nil
+}
+
+// refundHTTP 返回退款专用的 HTTP 客户端，带 15 秒超时，避免渠道抖动拖死审批。
+func (p *epayPlugin) refundHTTP() *http.Client {
+	if p.debug {
+		return &http.Client{Timeout: 15 * time.Second}
+	}
+	return refundHTTPClient
+}
+
+var refundHTTPClient = &http.Client{Timeout: 15 * time.Second}
+
 // VerifyPaymentCallback 验证易支付异步通知的签名并归一化返回结果，全部采用 V1 MD5。
 func (p *epayPlugin) VerifyPaymentCallback(_ context.Context, req *pb.VerifyPaymentCallbackRequest) (*pb.VerifyPaymentCallbackReply, error) {
 	raw := req.GetRaw()

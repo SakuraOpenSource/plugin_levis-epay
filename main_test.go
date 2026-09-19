@@ -7,12 +7,12 @@ import (
 func TestSignMD5(t *testing.T) {
 	// 测试易支付 MD5 签名算法
 	params := map[string]string{
-		"pid":           "1001",
-		"out_trade_no":  "20240101001",
-		"money":         "10.00",
-		"name":          "VIP会员",
-		"notify_url":    "http://example.com/notify",
-		"sign_type":     "MD5",
+		"pid":          "1001",
+		"out_trade_no": "20240101001",
+		"money":        "10.00",
+		"name":         "VIP会员",
+		"notify_url":   "http://example.com/notify",
+		"sign_type":    "MD5",
 	}
 	key := "test_key_123"
 
@@ -85,5 +85,5 @@ func TestBuildQuery(t *testing.T) {
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) &&
 		(s == substr || (len(s) > len(substr) &&
-		(s[:len(substr)] == substr || contains(s[1:], substr))))
+			(s[:len(substr)] == substr || contains(s[1:], substr))))
 }
