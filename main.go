@@ -42,8 +42,8 @@ import (
 
 const (
 	pluginName    = "易支付"
-	pluginVersion = "2.0.7"
-	pluginDesc    = "对接易支付 V1，全量采用 MD5 验证（SDK + POST 回退，支持调试与自定义通知地址）"
+	pluginVersion = "2.1.0"
+	pluginDesc    = "对接易支付 V1：支付、查单、回调验签（MD5）与订单退款（RefundPayment）"
 )
 
 func main() {
